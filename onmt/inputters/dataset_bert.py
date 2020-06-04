@@ -115,7 +115,9 @@ class BertDataset(TorchtextDataset):
         self.sort_key = sort_key
         examples = []
         ex_fields = {k: [(k, v)] for k, v in fields_dict.items()}
+        #print(ex_fields)
         for instance in instances:
+            #print("### FROMDICT", instance, "||||", ex_fields)
             ex = Example.fromdict(instance, ex_fields)
             examples.append(ex)
         fields_list = list(fields_dict.items())
@@ -210,13 +212,16 @@ class TaggerDataset(BertDataset):
     def __init__(self, fields_dict, data, tokenizer,
                  max_seq_len=256, delimiter=' '):
         targer_field = fields_dict["token_labels"]
+        #print("#TOTO field", fields_dict)
         self.pad_tok = targer_field.pad_token
         if hasattr(targer_field, 'vocab'):  # when predicting
             self.predict_tok = targer_field.vocab.itos[-1]
         if not isinstance(data, tuple):
             data = (data, [None for _ in range(len(data))])
+        #print("### DATA2222", data)
         instances = self.create_instances(
             data, tokenizer, delimiter, max_seq_len)
+        #print("### INSTANCES222", instances)
         super(TaggerDataset, self).__init__(fields_dict, instances)
 
     def create_instances(self, datas, tokenizer, delimiter, max_seq_len):
@@ -239,25 +244,32 @@ class TaggerDataset(BertDataset):
                 words = words.strip().split(delimiter)
             if taggings is None:  # when predicting
                 assert hasattr(self, 'predict_tok')
-                taggings = [self.predict_tok for _ in range(len(words))]
+                taggings = [(self.predict_tok, self.predict_tok) for _ in range(len(words))]
             sentence = []
-            tags = []
+            new_tags = [[] for i in range(len(taggings[0]))]
             max_num_tokens = max_seq_len - 2
-            for word, tag in zip(words, taggings):
+            for word, tags in zip(words, taggings):
+                # print("TaggerDataset", word, tags)
                 tokens = tokenizer.tokenize(word)
                 n_pad = len(tokens) - 1
-                paded_tag = [tag] + [self.pad_tok] * n_pad
                 if len(sentence) + len(tokens) > max_num_tokens:
                     break
                 else:
                     sentence.extend(tokens)
-                    tags.extend(paded_tag)
+                    for i, tag in enumerate(tags):
+                        paded_tag = [tag] + [self.pad_tok] * n_pad
+                        new_tags[i].extend(paded_tag)
             sentence = ["[CLS]"] + sentence + ["[SEP]"]
-            tags = [self.pad_tok] + tags + [self.pad_tok]
+            new_tags = [[self.pad_tok] + tags + [self.pad_tok] for tags in new_tags]
             segment_ids = [0 for _ in range(len(sentence))]
             instance = {
                 "tokens": sentence,
                 "segment_ids": segment_ids,
-                "token_labels": tags}
+                "token_labels": new_tags[0]}
+            if len(new_tags) > 1:
+                for i in range(1, len(new_tags)):
+                    instance["token_labels_" + str(i)] = new_tags[i]
+            # print(instance)
             instances.append(instance)
         return instances
+

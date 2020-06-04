@@ -11,6 +11,7 @@
 
 import torch
 import traceback
+import codecs
 
 import onmt.utils
 from onmt.utils.logging import logger
@@ -347,10 +348,12 @@ class Trainer(object):
                     # F-prop through the model.
                     all_encoder_layers, pooled_out = \
                         valid_model(input_ids, token_type_ids)
-                    seq_class_log_prob, prediction_log_prob = \
-                        valid_model.generator(all_encoder_layers, pooled_out)
+                    #seq_class_log_prob, prediction_log_prob = \
+                    #    valid_model.generator(all_encoder_layers, pooled_out)
+                    outputs = [gen(all_encoder_layers, pooled_out)
+                       for gen in valid_model.generator]
 
-                    outputs = (seq_class_log_prob, prediction_log_prob)
+                    #outputs = (seq_class_log_prob, prediction_log_prob)
                     # Compute loss.
                     _, batch_stats = self.valid_loss(batch, outputs)
 
@@ -519,13 +522,19 @@ class Trainer(object):
         """As the loss will be reduced by mean, normalization is not needed.
            But we still need to average between GPUs.
         """
+
+        torch.set_printoptions(profile='full')
+
         if self.accum_count > 1:
             self.optim.zero_grad()
+
+        #log_file = codecs.open('error.log', 'w', encoding='utf-8')
 
         for k, batch in enumerate(true_batches):
             # target_size = batch.tgt.size(0)
             # NOTE: for batch in BERT :
             # batch_first is True -> [batch, seq, vocab]
+            # print(batch)
             if isinstance(batch.tokens, tuple):
                 input_ids, seq_lengths = batch.tokens
             else:
@@ -535,6 +544,7 @@ class Trainer(object):
                 report_stats.n_src_words += seq_lengths.sum().item()
 
             token_type_ids = batch.segment_ids
+            #print(input_ids.shape, token_type_ids.shape)
 
             # 1. F-prop all to get log likelihood of two task.
             if self.accum_count == 1:
@@ -542,10 +552,15 @@ class Trainer(object):
 
             all_encoder_layers, pooled_out = self.model(
                 input_ids, token_type_ids)
-            seq_class_log_prob, prediction_log_prob = self.model.generator(
-                all_encoder_layers, pooled_out)
+            # seq_class_log_prob, prediction_log_prob = self.model.generator(
+            #     all_encoder_layers, pooled_out)
+            outputs = [gen(all_encoder_layers, pooled_out)
+                       for gen in self.model.generator]
+
+            # [(None, (B, S, n_class)), (None, (B, S, n_class_1))]
+
             # NOTE: (batch_size, 2), (batch_size, seq_size, vocab_size)
-            outputs = (seq_class_log_prob, prediction_log_prob)
+            # outputs = (seq_class_log_prob, prediction_log_prob)
 
             # 2. Compute loss.
             try:
@@ -557,8 +572,9 @@ class Trainer(object):
                 total_stats.update(batch_stats)
                 report_stats.update(batch_stats)
             except Exception:
+                print(batch.__dict__)
                 traceback.print_exc()
-                logger.info("At step %d, we removed a batch - accum %d",
+                logger.info("At step %d, we removed zzzzz a batch - accum %d",
                             self.optim.training_step, k)
 
             # 3. Update the parameters and statistics.

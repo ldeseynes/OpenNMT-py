@@ -272,9 +272,10 @@ class Tagger(Predictor):
             logger=logger,
             seed=seed)
         label_field = self.fields["token_labels"]
-        self.label_vocab = label_field.vocab
+        label_1_field = self.fields["token_labels_1"]
+        self.label_vocab = [label_field.vocab, label_1_field.vocab]
         self.pad_token = label_field.pad_token
-        self.pad_index = self.label_vocab.stoi[self.pad_token]
+        self.pad_index = self.label_vocab[0].stoi[self.pad_token]
 
     def tagging(self, data, batch_size, tokenizer, delimiter=' ',
                 max_seq_len=256, batch_type="sents"):
@@ -333,17 +334,32 @@ class Tagger(Predictor):
             # Forward
             all_encoder_layers, pooled_out = self.model(
                 input_ids, token_type_ids)
-            _, prediction_log_prob = self.model.generator(
-                all_encoder_layers, pooled_out)
-            # Predicting
-            pred_tag_ids = prediction_log_prob.argmax(-1)
-            non_padding = taggings.ne(self.pad_index)
-            batch_tag_ids, batch_mask = list(pred_tag_ids), list(non_padding)
-            batch_tag_select_ids = [pred.masked_select(mask).tolist()
-                                    for pred, mask in
-                                    zip(batch_tag_ids, batch_mask)]
+            # _, prediction_log_prob = self.model.generator(
+            #     all_encoder_layers, pooled_out)
+            outputs = [gen(all_encoder_layers, pooled_out)
+                       for gen in self.model.generator]
 
-            pred_tokens_tag = [[self.label_vocab.itos[index]
-                                for index in tag_select_ids]
-                               for tag_select_ids in batch_tag_select_ids]
+            # Predicting
+            predictions = []
+            for (_, prediction_log_prob), vocab in zip(outputs, self.label_vocab):
+                pred_tag_ids = prediction_log_prob.argmax(-1)
+                non_padding = taggings.ne(self.pad_index)
+                batch_tag_ids, batch_mask = list(pred_tag_ids), list(non_padding)
+                batch_tag_select_ids = [pred.masked_select(mask).tolist()
+                                        for pred, mask in
+                                        zip(batch_tag_ids, batch_mask)]
+
+                predictions.append([[vocab.itos[index]
+                                     for index in tag_select_ids]
+                                    for tag_select_ids in batch_tag_select_ids])
+            #print("## PREDS", predictions)
+
+            [[["label1", ...], ["label1"]], [["label2", ...], ["label2"]]]
+
+            pred_tokens_tag = []
+            tokens1, tokens2 = predictions
+            for list1, list2 in zip(tokens1, tokens2):
+                tokens = ["{}|{}".format(x, y) for x, y in zip(list1, list2)]
+                pred_tokens_tag.append(tokens)
+            # pred_tokens_tag = ["{}|{}".format(x, y) for x, y in zip(predictions)]
             return pred_tokens_tag

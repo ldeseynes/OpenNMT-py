@@ -29,11 +29,13 @@ def build_loss_compute(model, tgt_field, opt, train=True):
                 padding_idx = tgt_field.vocab.stoi[tgt_field.pad_token]
             else:  # target is pre-numerized: -1 for unmasked token in mlm
                 padding_idx = tgt_field.pad_token
-            criterion = nn.NLLLoss(ignore_index=padding_idx, reduction='mean')
+            print("TOTO IS HERE")
+            criterions = [nn.NLLLoss(ignore_index=padding_idx, reduction='mean'),
+                          nn.NLLLoss(ignore_index=padding_idx, reduction='mean')]
         else:  # sentence level
             criterion = nn.NLLLoss(reduction='mean')
         task = opt.task_type
-        compute = BertLoss(criterion, task)
+        compute = BertLoss(criterions, task)
     else:
         assert isinstance(model, onmt.models.NMTModel)
         padding_idx = tgt_field.vocab.stoi[tgt_field.pad_token]
@@ -84,14 +86,14 @@ class BertLoss(nn.Module):
             between input and target.
         task (str): BERT downstream task.
     """
-    def __init__(self, criterion, task):
+    def __init__(self, criterions, task):
         super(BertLoss, self).__init__()
-        self.criterion = criterion
+        self.criterions = criterions
         self.task = task
 
     @property
     def padding_idx(self):
-        return self.criterion.ignore_index
+        return self.criterions[0].ignore_index
 
     def _bottle(self, _v):
         return _v.view(-1, _v.size(2))
@@ -177,14 +179,16 @@ class BertLoss(nn.Module):
             outputs (tuple of Tensor): (seq_class_log_prob:``(B, 2)``,
                 prediction_log_prob:``(B, S, vocab)``)
 
+                [(None, (B, S, n_class)), (None, (B, S, n_class_1))]
+
         Returns:
             (float, BertStatistics)
             * total_loss: total loss of input batch reduced by 'mean'.
             * stats: A statistic object.
         """
 
-        assert isinstance(outputs, tuple)
-        seq_class_log_prob, prediction_log_prob = outputs
+        # assert isinstance(outputs, tuple)
+        # seq_class_log_prob, prediction_log_prob = outputs
         if self.task == 'pretraining':
             assert list(seq_class_log_prob.size()) == [len(batch), 2]
             # masked lm task: token level(loss mean by number of tokens)
@@ -210,15 +214,21 @@ class BertLoss(nn.Module):
             total_loss = self.criterion(seq_class_log_prob, gtruth_sentences)
 
         elif self.task == 'tagging' or self.task == 'generation':
-            assert seq_class_log_prob is None
+            # assert seq_class_log_prob is None
             assert hasattr(batch, 'token_labels')
             # token level task: loss mean by number of tokens
             gtruth_tokens = batch.token_labels  # (B, S)
             bottled_gtruth_tokens = gtruth_tokens.view(-1)  # (B, S)
+            gtruth_tokens_1 = batch.token_labels_1  # (B, S)
+            bottled_gtruth_tokens_1 = gtruth_tokens_1.view(-1)  # (B, S)
+            gtruths = [bottled_gtruth_tokens, bottled_gtruth_tokens_1]
+
+            # print(gtruth_tokens.shape, bottled_gtruth_tokens.shape)
             # prediction: (B, S, V) -> (B * S, V)
-            bottled_prediction_log_prob = self._bottle(prediction_log_prob)
-            total_loss = self.criterion(bottled_prediction_log_prob,
-                                        bottled_gtruth_tokens)
+            # bottled_prediction_log_prob = self._bottle(prediction_log_prob)
+            # print(prediction_log_prob.shape, bottled_prediction_log_prob.shape)
+            total_loss = sum([crit(self._bottle(pred), truth)
+                              for crit, (_, pred), truth in zip(self.criterions, outputs, gtruths)])
             # sentence level task: Not valide
             seq_class_log_prob = None
             gtruth_sentences = None
@@ -226,11 +236,17 @@ class BertLoss(nn.Module):
         else:
             raise ValueError("task %s not available!" % (self.task))
 
+        # stats = self._stats(total_loss.clone(),
+        #                     bottled_prediction_log_prob,
+        #                     bottled_gtruth_tokens,
+        #                     seq_class_log_prob,
+        #                     gtruth_sentences)
         stats = self._stats(total_loss.clone(),
-                            bottled_prediction_log_prob,
+                            self._bottle(outputs[0][1]),
                             bottled_gtruth_tokens,
-                            seq_class_log_prob,
-                            gtruth_sentences)
+                            None,
+                            None)
+        # stats = None
         return total_loss, stats
 
 

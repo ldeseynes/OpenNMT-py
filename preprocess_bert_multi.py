@@ -67,15 +67,22 @@ def build_vocab_from_tokenizer(fields, tokenizer, named_labels):
 
 
 def build_save_vocab(fields, tokenizer, label_vocab, opt):
-    if opt.sort_label_vocab is True:
+    if opt.sort_label_vocab is True and len(label_vocab) == 1:
         label_vocab.sort()
     if opt.task == "classification":
         named_labels = ("category", label_vocab)
     if opt.task == "tagging":
-        named_labels = ("token_labels", label_vocab)
+        print("label_vocab", label_vocab)
+        named_labels = ("token_labels", label_vocab[0])
+        print("named_labels", named_labels)
+        fields_vocab = build_vocab_from_tokenizer(
+            fields, tokenizer, named_labels)
+        if len(label_vocab) > 1:
+            for i in range(1, len(label_vocab)):
+                named_labels = ("token_labels_" + str(i), label_vocab[i])
+                fields_vocab = build_vocab_from_tokenizer(
+                    fields, tokenizer, named_labels)
 
-    fields_vocab = build_vocab_from_tokenizer(
-        fields, tokenizer, named_labels)
     bert_vocab_file = opt.save_data + ".vocab.pt"
     torch.save(fields_vocab, bert_vocab_file)
 
@@ -118,10 +125,11 @@ def create_cls_instances_from_files(opt):
     label_vocab = build_label_vocab_from_path(opt.data)
     for filename in opt.data:
         label = filename.split('/')[-2]
+        # print("### label", label)
         with codecs.open(filename, "r", encoding="utf-8") as f:
             lines = f.readlines()
-            print("total {} line of File {} loaded for label: {}.".format(
-                len(lines), filename, label))
+            #print("total {} line of File {} loaded for label: {}.".format(
+            #    len(lines), filename, label))
             lines_labels = [label for _ in range(len(lines))]
             instances.extend(lines)
             labels.extend(lines_labels)
@@ -152,7 +160,9 @@ def create_tag_instances_from_file(opt):
     logger.info("Reading tag with token in column %s, tag in column %s"
                 % (opt.input_columns, opt.label_column))
     sentences, taggings = [], []
-    tag_vocab = opt.labels
+    # assert opt.labels == [] and 
+    tag_vocabs = [[] for i in range(len(opt.label_column))]
+    # print("#tag_vocabs", tag_vocabs)
     with codecs.open(opt.data, "r", encoding="utf-8") as f:
         lines = f.readlines()
         logger.info("total {} line of file {} loaded.".format(
@@ -169,23 +179,25 @@ def create_tag_instances_from_file(opt):
             else:
                 elements = line.split(opt.delimiter)
                 token = elements[opt.input_columns]
-                tag = elements[opt.label_column]
-                if tag not in tag_vocab:
-                    tag_vocab.append(tag)
-                sentence_sofar.append((token, tag))
+                tags = [elements[i] for i in opt.label_column]
+                # print("### tags", tags)
+                for tag, vocab in zip(tags, tag_vocabs):
+                    if tag not in vocab:
+                        vocab.append(tag)
+                sentence_sofar.append((token, tags))
         logger.info("total {} sentence loaded.".format(len(sentences)))
-        logger.info("All tags:{}".format(tag_vocab))
+        logger.info("All tags:{}".format(tag_vocabs))
 
-    return sentences, taggings, tag_vocab
+    return sentences, taggings, tag_vocabs
 
 
 def build_tag_dataset(corpus_type, fields, tokenizer, opt):
     """Build tagging dataset with vocab file if train set"""
     assert corpus_type in ['train', 'valid']
-    sentences, taggings, tag_vocab = create_tag_instances_from_file(opt)
-    logger.info("Exiting Tags:%s" % tag_vocab)
+    sentences, taggings, tag_vocabs = create_tag_instances_from_file(opt)
+    logger.info("Existing Tags:%s" % tag_vocabs)
     if corpus_type == 'train':
-        build_save_vocab(fields, tokenizer, tag_vocab, opt)
+        build_save_vocab(fields, tokenizer, tag_vocabs, opt)
 
     if opt.do_shuffle is True:
         sentences, taggings = shuffle_pair_list(sentences, taggings)
@@ -209,7 +221,8 @@ def main(opt):
     opt = ArgumentParser.validate_preprocess_bert_opts(opt)
     logger.info("Preprocess dataset...")
 
-    fields = get_bert_fields(opt.task)
+    fields = get_bert_fields(opt.task, num_labels=len(opt.label_column))
+    #print("fields", fields)
     logger.info("Get fields for Task: '%s'." % opt.task)
 
     tokenizer = BertTokenizer.from_pretrained(

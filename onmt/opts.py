@@ -375,7 +375,7 @@ def preprocess_bert_opts(parser):
               help="delimiter used in input file for seperate fields.")
     group.add('--input_columns', type=int, nargs='+', default=[],
               help="Column where contain sentence A(,B)")
-    group.add('--label_column', type=int, default=None,
+    group.add('--label_column', nargs='+', type=int, default=None,
               help="Column where contain label")
 
     group = parser.add_argument_group('Vocab')

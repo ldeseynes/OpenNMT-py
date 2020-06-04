@@ -317,6 +317,10 @@ def build_bert_generator(model_opt, fields, bert_encoder):
         generator = ClassificationHead(bert_encoder.d_model, n_class, dropout)
     elif task == 'tagging':
         n_class = len(fields["token_labels"].vocab.stoi)
+        n_class_1 = len(fields["token_labels_1"].vocab.stoi)
         logger.info('Generator of tagging with %s tag.' % n_class)
-        generator = TokenTaggingHead(bert_encoder.d_model, n_class, dropout)
+        generator = nn.ModuleList([
+            TokenTaggingHead(bert_encoder.d_model, n_class, dropout),
+            TokenTaggingHead(bert_encoder.d_model, n_class_1, dropout)
+            ])
     return generator

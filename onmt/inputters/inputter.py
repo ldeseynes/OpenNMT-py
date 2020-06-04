@@ -186,7 +186,7 @@ def get_fields(
 
 
 def get_bert_fields(task='pretraining', pad='[PAD]', bos='[CLS]',
-                    eos='[SEP]', unk='[UNK]'):
+                    eos='[SEP]', unk='[UNK]', num_labels=1):
     fields = {}
     tokens = Field(sequential=True, use_vocab=True, pad_token=pad,
                    unk_token=unk, include_lengths=True, batch_first=True)
@@ -213,6 +213,11 @@ def get_bert_fields(task='pretraining', pad='[PAD]', bos='[CLS]',
         token_labels = Field(sequential=True, use_vocab=True, unk_token=None,
                              pad_token=pad, batch_first=True)
         fields["token_labels"] = token_labels
+        if num_labels > 1:
+            for i in range(1, num_labels): 
+                fields["token_labels_" + str(i)] = Field(
+                    sequential=True, use_vocab=True, unk_token=None,
+                    pad_token=pad, batch_first=True)
 
     else:
         raise ValueError("task %s has not been implemented yet!" % task)
@@ -455,6 +460,7 @@ def _build_bert_fields_vocab(fields, counters, vocab_size, label_name=None,
 
         label_field.vocab = label_field.vocab_cls(
             label_counter, specials=specials)
+    print("TOTO fields", fields)
     return fields
 
 

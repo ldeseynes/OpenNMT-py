@@ -36,6 +36,8 @@ def main(opt):
         for i, data_shard in enumerate(data_shards):
             logger.info("Tagging shard %d." % i)
             data = [seq.decode("utf-8") for seq in data_shard]
+            #print(type(data_shard), len(data))
+            #print("### DATA", data)
             tagger.tagging(
                 data,
                 opt.batch_size,
